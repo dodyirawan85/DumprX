@@ -36,9 +36,9 @@ printf "\e[32m" && __bannerTop && printf "\e[0m"
 sleep 1
 
 # Package Helpers
-# Package names drift between distro releases, and a hardcoded list aborts the
-# whole setup when one goes away. Resolve every requirement against what this
-# system's package database actually provides.
+# Package names drift between distro releases (Ubuntu 26.04 dropped 'p7zip-full',
+# 'p7zip-rar' and 'liblz4-tool'), so a hardcoded list aborts the whole setup.
+# Resolve every requirement against what this system's package database provides.
 
 # Success when the package has a real installable candidate.
 function pkg_known() {
@@ -89,12 +89,24 @@ if [[ "$OSTYPE" == "linux-gnu" ]]; then
 
         sleep 1
         echo -e ${BLUE}">> Resolving packages for this release..."${NORMAL}
-        for p in unace unrar zip unzip p7zip-full p7zip-rar sharutils rar \
-                 uudeview mpack arj cabextract device-tree-compiler \
-                 liblzma-dev brotli liblz4-tool axel gawk aria2 detox cpio \
-                 rename liblz4-dev jq git-lfs; do
+        for p in unace unrar zip unzip sharutils rar uudeview mpack arj \
+                 cabextract device-tree-compiler liblzma-dev brotli axel \
+                 gawk aria2 detox cpio rename liblz4-dev jq git-lfs \
+                 file curl xz-utils; do
             pkg_add "${p}"
         done
+
+        # '7zip' replaces the removed 'p7zip-full' (dropped after 24.04) and
+        # ships the '7z'/'7za' binaries plus the codec plugin loader.
+        # The RAR codec comes from '7zip-rar' (previously 'p7zip-rar').
+        # NOTE: do not add '7zip-standalone' - it installs a '7zz' into PATH that
+        # shadows utils/bin/7zz and has no RAR codec, which dumper.sh relies on.
+        pkg_add 7zip p7zip-full
+        pkg_add 7zip-rar p7zip-rar
+
+        # 'liblz4-tool' was merged into 'lz4'; both names are tried so older
+        # releases keep working.
+        pkg_add lz4 liblz4-tool
 
         if [[ ${#SKIPPED_PKGS[@]} -gt 0 ]]; then
             sleep 1
@@ -118,7 +130,7 @@ if [[ "$OSTYPE" == "linux-gnu" ]]; then
         # "dnf" automatically updates repos before installing packages
         for p in unace unrar zip unzip sharutils uudeview arj cabextract \
                  file-roller dtc brotli axel aria2 detox cpio lz4 xz-devel \
-                 p7zip p7zip-plugins git-lfs; do
+                 p7zip p7zip-plugins git-lfs jq file curl xz; do
             pkg_add "${p}"
         done
 
@@ -143,7 +155,7 @@ if [[ "$OSTYPE" == "linux-gnu" ]]; then
 
         for p in unace unrar p7zip sharutils uudeview arj cabextract \
                  file-roller dtc brotli axel gawk aria2 detox cpio lz4 jq \
-                 git-lfs; do
+                 git-lfs file curl xz; do
             pkg_add "${p}"
         done
 
@@ -173,7 +185,7 @@ elif [[ "$OSTYPE" == "darwin"* ]]; then
     echo -e ${PURPLE}"macOS Detected"${NORMAL}
     sleep 1
 
-    for p in protobuf xz brotli lz4 aria2 detox coreutils p7zip gawk git-lfs; do
+    for p in protobuf xz brotli lz4 aria2 detox coreutils p7zip gawk git-lfs jq; do
         pkg_add "${p}"
     done
 
