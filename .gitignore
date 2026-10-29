@@ -1,3 +1,7 @@
+# Dump Output: `dumper.sh` names its final folder after the firmware, so any
+# new top-level directory other than utils/ is generated output.
+/*/
+!/utils/
 .github_token
 .github_orgname
 .tg_token
@@ -9,5 +13,7 @@ out/
 *.pyc
 __pycache__
 utils/oppo_*
+utils/android_tools/
+utils/pacextractor/
 utils/vmlinux*
 utils/extract-ikconfig
