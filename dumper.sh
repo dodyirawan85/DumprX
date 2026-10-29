@@ -4,8 +4,10 @@
 tput reset 2>/dev/null || clear
 
 # Unset Every Variables That We Are Gonna Use Later
+# NOTE: DUMPRX_OUTPUT_NAME is deliberately NOT unset - it is inherited from a
+# parent run and carries the final output folder name down to child runs.
 unset PROJECT_DIR INPUTDIR UTILSDIR OUTDIR TMPDIR FILEPATH FILE EXTENSION UNZIP_DIR ArcPath \
-	GITHUB_TOKEN GIT_ORG TG_TOKEN CHAT_ID
+	OUTPUT_STEM GITHUB_TOKEN GIT_ORG TG_TOKEN CHAT_ID
 
 # Resize Terminal Window To Atleast 30x90 For Better View
 printf "\033[8;30;90t" || true
@@ -238,6 +240,83 @@ else
 fi
 
 cd "${PROJECT_DIR}"/ || exit
+
+# Derive The Final Output Folder Name From The Original Firmware Filename,
+# So Dumps Are Not All Dropped Into One Generic 'out' Folder ('X.tar.md5' -> 'X')
+function output_stem() {
+	local name="${1##*/}"		# Strip Any Leading Path Components
+
+	# Compound Archive Extensions Count As A Single Extension
+	case "${name}" in
+		*.tar.gz|*.tar.bz2|*.tar.xz|*.tar.zst|*.tar.lz4|*.tar.lzma|*.tar.md5)
+			name="${name%%.tar.*}" ;;
+		*.*)
+			name="${name%.*}" ;;
+	esac
+
+	name=$(printf "%s" "${name}" | tr -s " " "_" | tr -d "/")
+	[[ -z "${name}" || "${name}" == "." || "${name}" == ".." ]] && name="out"
+	printf "%s" "${name}"
+}
+
+# Names The Toolkit Itself Occupies, Which Must Never Be Reused
+function output_name_is_reserved() {
+	case "${1}" in
+		out|input|utils|.git) return 0 ;;
+	esac
+	return 1
+}
+
+# A Name Is Usable Unless Something Unrelated Already Lives There; A Folder
+# Holding A Finished Dump (all_files.txt) Is This Firmware, So It Is Fine
+function output_target_is_free() {
+	local path="${PROJECT_DIR}/${1}"
+
+	output_name_is_reserved "${1}" && return 1
+	[[ -e "${path}" && ! -f "${path}/all_files.txt" ]] && return 1
+	return 0
+}
+
+# A Re-Loaded Child Run Inherits The Original Name From Its Parent
+if [[ -n "${DUMPRX_OUTPUT_NAME:-}" ]]; then
+	# The Inherited Name Is Authoritative: The Folder May Already Hold Part Of
+	# This Very Dump, So It Must Not Be Treated As A Collision. Reserved Names
+	# Are Still Refused, Since They Belong To The Toolkit.
+	OUTPUT_STEM="${DUMPRX_OUTPUT_NAME}"
+	output_name_is_reserved "${OUTPUT_STEM}" && OUTPUT_STEM="out"
+else
+	# Prefer The Resolved Input File, Then The Raw Argument
+	OUTPUT_STEM=""
+	[[ -n "${FILEPATH}" ]] && OUTPUT_STEM=$(output_stem "${FILEPATH}")
+	[[ -z "${OUTPUT_STEM}" && -n "${FILE}" ]] && OUTPUT_STEM=$(output_stem "${FILE}")
+	[[ -z "${OUTPUT_STEM}" && -n "${1}" ]] && OUTPUT_STEM=$(output_stem "${1}")
+	OUTPUT_STEM="${OUTPUT_STEM:-out}"
+
+	output_target_is_free "${OUTPUT_STEM}" || OUTPUT_STEM="out"
+fi
+
+if [[ "${OUTDIR}" != "${PROJECT_DIR}/${OUTPUT_STEM}" ]]; then
+	if [[ -d "${PROJECT_DIR}/${OUTPUT_STEM}" ]]; then
+		# A Previous Dump Of This Same Firmware: Merge Into Its Folder Rather
+		# Than Overwriting It. Move Entries Instead Of Copying, Since The
+		# Staging Directory Can Already Hold A Full Firmware Image.
+		printf "Reusing Existing Output Folder: %s\n" "${OUTPUT_STEM}"
+		rm -rf "${PROJECT_DIR}/${OUTPUT_STEM}/tmp" 2>/dev/null	# Stale Staging Area
+		for entry in "${OUTDIR}"/*; do
+			[[ -e "${entry}" ]] || continue
+			mv -f "${entry}" "${PROJECT_DIR}/${OUTPUT_STEM}"/ 2>/dev/null
+		done
+		rm -rf "${OUTDIR}"
+	else
+		mv "${OUTDIR}" "${PROJECT_DIR}/${OUTPUT_STEM}" || OUTPUT_STEM="out"
+	fi
+	OUTDIR="${PROJECT_DIR}/${OUTPUT_STEM}"
+	TMPDIR="${OUTDIR}"/tmp
+	mkdir -p "${TMPDIR}" 2>/dev/null
+fi
+
+# Hand The Name Down To Any Child Run That Has To Re-Load The Firmware
+export DUMPRX_OUTPUT_NAME="${OUTPUT_STEM}"
 
 # Function for Extracting Super Images
 function superimage_extract() {
