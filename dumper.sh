@@ -7,7 +7,7 @@ tput reset 2>/dev/null || clear
 # NOTE: DUMPRX_OUTPUT_NAME is deliberately NOT unset - it is inherited from a
 # parent run and carries the final output folder name down to child runs.
 unset PROJECT_DIR INPUTDIR UTILSDIR OUTDIR TMPDIR FILEPATH FILE EXTENSION UNZIP_DIR ArcPath \
-	OUTPUT_STEM GITHUB_TOKEN GIT_ORG TG_TOKEN CHAT_ID
+	OUTPUT_STEM IKCONFIG_SCRIPT GITHUB_TOKEN GIT_ORG TG_TOKEN CHAT_ID
 
 # Resize Terminal Window To Atleast 30x90 For Better View
 printf "\033[8;30;90t" || true
@@ -95,9 +95,23 @@ for tool_slug in "${EXTERNAL_TOOLS[@]}"; do
 done
 
 # Retrive 'extract-ikconfig' from torvalds/linux
-if ! [[ -f "${UTILSDIR}"/extract-ikconfig ]]; then
-    curl -s -Lo "${UTILSDIR}"/extract-ikconfig https://raw.githubusercontent.com/torvalds/linux/refs/heads/master/scripts/extract-ikconfig
-    chmod +x "${UTILSDIR}"/extract-ikconfig
+# Download to a temporary file first and validate it: a failed fetch (rate
+# limit, 404, HTML error page) must never be left in place, otherwise the
+# existence check below keeps reusing that broken file on every later run.
+IKCONFIG_SCRIPT="${UTILSDIR}"/extract-ikconfig
+if ! grep -qs 'IKCFG_ST' "${IKCONFIG_SCRIPT}"; then
+	rm -f "${IKCONFIG_SCRIPT}"
+	curl -fsSLo "${IKCONFIG_SCRIPT}".tmp \
+		https://raw.githubusercontent.com/torvalds/linux/refs/heads/master/scripts/extract-ikconfig || {
+		rm -f "${IKCONFIG_SCRIPT}".tmp
+		printf "Failed to download 'extract-ikconfig'.\n"
+	}
+	if grep -qs 'IKCFG_ST' "${IKCONFIG_SCRIPT}".tmp; then
+		mv -f "${IKCONFIG_SCRIPT}".tmp "${IKCONFIG_SCRIPT}"
+		chmod +x "${IKCONFIG_SCRIPT}"
+	else
+		rm -f "${IKCONFIG_SCRIPT}".tmp
+	fi
 fi
 
 ## See README.md File For Program Credits
@@ -895,9 +909,14 @@ done
 if [[ -f boot.img ]]; then
     # Extract 'ikconfig'
     echo "Extracting 'ikconfig'..."
-    ${EXTRACT_IKCONFIG} boot.img > ikconfig || {
-        echo "[ERROR] Failed to generate 'ikconfig'"
-    }
+    if grep -qs 'IKCFG_ST' "${EXTRACT_IKCONFIG}" 2>/dev/null; then
+        "${EXTRACT_IKCONFIG}" boot.img > ikconfig || {
+            echo "[ERROR] Failed to generate 'ikconfig'"
+            rm -f ikconfig
+        }
+    else
+        echo "[ERROR] 'extract-ikconfig' is unavailable, skipping"
+    fi
 
     # Generate non-stack symbols
     echo "[INFO] Generating 'kallsyms.txt'..."
